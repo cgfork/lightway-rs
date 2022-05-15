@@ -1,0 +1,26 @@
+[package]
+name = "lightway"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace]
+members =[
+    "crates/netway",
+]
+
+[dependencies]
+netway = { path = "crates/netway" }
+tokio = { version="1.8", features = ["full"] }
+tokio-native-tls = "0.3"
+log = "0.4"
+env_logger = "0.9"
+async-trait = "0.1"
+rust-ini = "0.17"
+regex = "1"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.8"
+shellexpand = "2.1"
+anyhow = "1.0"
