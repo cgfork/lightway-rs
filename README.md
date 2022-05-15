@@ -1,5 +1,3 @@
-# Introduction
-
 <div align="center">
 
 [![stable](https://img.shields.io/badge/stable-stable-green.svg)](https://github.com/cgfork/lightway-rs) [![license](https://img.shields.io/github/license/cgfork/lightway-rs.svg?style=plastic)]() [![download_count](https://img.shields.io/github/downloads/cgfork/lightway-rs/total.svg?style=plastic)](https://github.com/cgfork/lightway-rs/releases) [![download](https://img.shields.io/github/release/cgfork/lightway-rs.svg?style=plastic)](https://github.com/cgfork/lightway-rs/releases)
