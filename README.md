@@ -27,31 +27,3 @@ $ brew install openssl
 ```
 $ cargo install --git https://github.com/cgfork/lightway-rs
 ```
-
-# Configuration
-
-```yaml
----
-general:
-  loglevel: info
-  skip_proxy:
-    - 127.0.0.1
-    - 10.0.0.0/8
-    - localhost
-    - "*.local"
-  port: 1235
-  socks_port: 1080
-  http_listen: "0.0.0.0:1235"
-  socks5_listen: "0.0.0.0:1080"
-  dns_server:
-    - system
-  exclude_simple_hostnames: true
-  always_real_ip:
-    - "*.xbox.live.com"
-  proxy_mode: direct 
-  proxy: server
-proxies:
-  server: "https, <your domain>, <port>, <username>, <password>"
-rules:
-  - "DOMAIN-SUFFIX,google.com,Proxy"
-```
