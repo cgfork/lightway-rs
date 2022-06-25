@@ -15,7 +15,17 @@ use std::{
     process::{Command, Stdio},
     sync::Arc,
 };
+use clap::Parser;    
 use tokio::{net::TcpListener, task::JoinHandle};
+
+/// `lightway` is a simple proxy which supports the http and socks5.
+#[derive(Debug, Parser)]
+pub struct App {
+     /// The config file for starting the lightway.
+    #[clap(long, env = "PROXY_CONF", default_value = "~/.proxy.yaml")]
+    config: String,
+}
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,12 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Pid: {}", child.id());
         return Ok(());
     }
-    let proxy_conf = match option_env!("PROXY_CONF") {
-        Some(c) => shellexpand::full(c).unwrap(),
-        None => shellexpand::full("~/.proxy.yaml").unwrap(),
-    };
-    
-    let f = fs::read(Path::new(proxy_conf.as_ref())).unwrap();
+
+    let app  = App::parse();   
+    let f = fs::read(Path::new(Path::new(shellexpand::full(&app.config).unwrap().as_ref()))).unwrap();
     let config = serde_yaml::from_slice::<config::Config>(&f).unwrap();
     env_logger::builder()
         .parse_filters(&config.general.loglevel)
