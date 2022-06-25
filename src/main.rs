@@ -34,6 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(c) => shellexpand::full(c).unwrap(),
         None => shellexpand::full("~/.proxy.yaml").unwrap(),
     };
+    
     let f = fs::read(Path::new(proxy_conf.as_ref())).unwrap();
     let config = serde_yaml::from_slice::<config::Config>(&f).unwrap();
     env_logger::builder()

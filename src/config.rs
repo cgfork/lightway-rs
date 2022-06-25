@@ -27,8 +27,6 @@ pub struct Config {
 pub struct General {
     pub loglevel: String,
     pub skip_proxy: Vec<String>,
-    pub port: u16,
-    pub socks_port: u16,
     pub http_listen: String,
     pub socks5_listen: String,
     pub dns_server: Option<(String, String)>,
@@ -48,8 +46,6 @@ impl Default for General {
                 "localhost".to_string(),
                 "*.local".to_string(),
             ],
-            port: 1235,
-            socks_port: 1080,
             http_listen: "127.0.0.1:1235".to_string(),
             socks5_listen: "127.0.0.1:1080".to_string(),
             dns_server: Some(("system".to_string(), "114.114.114.114".to_string())),
