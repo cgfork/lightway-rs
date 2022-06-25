@@ -24,14 +24,20 @@ pub struct App {
      /// The config file for starting the lightway.
     #[clap(long, env = "PROXY_CONF", default_value = "~/.proxy.yaml")]
     config: String,
+
+    /// Start lightway as daemon.
+    #[clap(long, short)]
+    daemon: bool,
 }
 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() == 2 && &args[1] == "--daemon" {
+    let app  = App::parse();
+        let args: Vec<String> = std::env::args().collect();
+    if app.daemon {
         let child = Command::new(&args[0])
+            .arg(format!("--config={}", &app.config))
             .stdin(Stdio::inherit())
             .stdout(Stdio::null()) // ingore env_logger output
             .stderr(Stdio::null()) // ingore env_logger output
@@ -41,7 +47,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let app  = App::parse();   
     let f = fs::read(Path::new(Path::new(shellexpand::full(&app.config).unwrap().as_ref()))).unwrap();
     let config = serde_yaml::from_slice::<config::Config>(&f).unwrap();
     env_logger::builder()
