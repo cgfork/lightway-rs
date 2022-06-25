@@ -16,6 +16,12 @@
 $ sudo apt-get install build-essential libssl-dev
 ```
 
+## Debian
+
+```
+$ sudo apt-get install build-essential libssl-dev pkg-config
+```
+
 ### MacOS
 
 ```
