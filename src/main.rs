@@ -6,22 +6,18 @@ mod http;
 mod rule;
 mod socks;
 
-use config::parse_proxy;
-use netway::auth::Authentication;
-use rule::{rules::Rule, Args, Decision};
+use clap::Parser;
 use std::{
     fs,
     path::Path,
     process::{Command, Stdio},
-    sync::Arc,
 };
-use clap::Parser;    
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::task::JoinHandle;
 
 /// `lightway` is a simple proxy which supports the http and socks5.
 #[derive(Debug, Parser)]
 pub struct App {
-     /// The config file for starting the lightway.
+    /// The config file for starting the lightway.
     #[clap(long, env = "PROXY_CONF", default_value = "~/.proxy.yaml")]
     config: String,
 
@@ -30,11 +26,10 @@ pub struct App {
     daemon: bool,
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app  = App::parse();
-        let args: Vec<String> = std::env::args().collect();
+    let app = App::parse();
+    let args: Vec<String> = std::env::args().collect();
     if app.daemon {
         let child = Command::new(&args[0])
             .arg(format!("--config={}", &app.config))
@@ -47,88 +42,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let f = fs::read(Path::new(Path::new(shellexpand::full(&app.config).unwrap().as_ref()))).unwrap();
+    let f = fs::read(Path::new(Path::new(
+        shellexpand::full(&app.config).unwrap().as_ref(),
+    )))
+    .unwrap();
     let config = serde_yaml::from_slice::<config::Config>(&f).unwrap();
     env_logger::builder()
         .parse_filters(&config.general.loglevel)
         .init();
-    let rules = config
-        .rules
-        .iter()
-        .filter_map(|v| match rule::rules::parse(v) {
-            Ok(x) => Some(x),
-            Err(_) => {
-                log::error!("unknown rule: {}", v);
-                None
-            }
-        })
-        .collect::<Vec<(Rule, Decision, Option<Args>)>>();
-    let dialer = match config.general.proxy {
-        Some(name) => match config.proxies.get(&name) {
-            Some(p) => parse_proxy(p).unwrap(),
-            None => unimplemented!(),
-        },
-        None => {
-            // TODO: random choose
-            unimplemented!()
-        }
-    };
-
-    let (http_task, socks_task) = match config.general.proxy_mode {
-        config::ProxyMode::Direct => {
-            let always_http_proxy = http::AlwaysDirect::new(
-                TcpListener::bind(config.general.http_listen).await?,
-                Arc::new(Authentication::NoAuth),
-            );
-            let http_task = tokio::spawn(async move { always_http_proxy.start_accept().await });
-
-            let always_socks_proxy = socks::AlwaysDirect::new(
-                TcpListener::bind(config.general.socks5_listen).await?,
-                Arc::new(Authentication::NoAuth),
-            );
-            let socks_task = tokio::spawn(async move { always_socks_proxy.start_accept().await });
-            (http_task, socks_task)
-        }
-        config::ProxyMode::Proxy => {
-            let always_http_proxy = http::AlwaysProxy::new(
-                dialer.clone(),
-                TcpListener::bind(config.general.http_listen).await?,
-                Arc::new(Authentication::NoAuth),
-            );
-            let http_task = tokio::spawn(async move { always_http_proxy.start_accept().await });
-
-            let always_socks_proxy = socks::AlwaysProxy::new(
-                dialer.clone(),
-                TcpListener::bind(config.general.socks5_listen).await?,
-                Arc::new(Authentication::NoAuth),
-            );
-            let socks_task = tokio::spawn(async move { always_socks_proxy.start_accept().await });
-            (http_task, socks_task)
-        }
-        config::ProxyMode::Auto => {
-            let policy = Arc::new(rules);
-            let always_http_proxy = http::AutoProxy::new(
-                dialer.clone(),
-                TcpListener::bind(config.general.http_listen).await?,
-                Arc::new(Authentication::NoAuth),
-                policy.clone(),
-                false,
-            );
-            let http_task = tokio::spawn(async move { always_http_proxy.start_accept().await });
-
-            let always_socks_proxy = socks::AutoProxy::new(
-                dialer.clone(),
-                TcpListener::bind(config.general.socks5_listen).await?,
-                Arc::new(Authentication::NoAuth),
-                policy.clone(),
-                false,
-            );
-            let socks_task = tokio::spawn(async move { always_socks_proxy.start_accept().await });
-            (http_task, socks_task)
-        }
-    };
-
-    match tokio::try_join!(flattern(http_task), flattern(socks_task)) {
+    let http_task = http::start_proxy(config.parse()?).await?;
+    let sock_task = socks::start_proxy(config.parse()?).await?;
+    match tokio::try_join!(flattern(http_task), flattern(sock_task)) {
         Ok(_) => Ok(()),
         Err(e) => {
             log::error!("exit error: {}", e);

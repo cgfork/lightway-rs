@@ -76,17 +76,17 @@ where
     Ok(rep)
 }
 
-pub struct Proxy<Dialer> {
+pub struct ProxySever<Dialer> {
     dialer: Dialer,
 }
 
-impl<Dialer> Proxy<Dialer> {
+impl<Dialer> ProxySever<Dialer> {
     pub fn new(dialer: Dialer) -> Self {
         Self { dialer }
     }
 }
 
-impl<D, O, E> Proxy<D>
+impl<D, O, E> ProxySever<D>
 where
     D: TryConnect<Output = O, Error = E>,
     O: ToLocalAddr<Error = E> + AsyncRead + AsyncWrite + Unpin + Send,
@@ -191,19 +191,19 @@ where
     }
 }
 
-pub struct ProxySocks5 {
+pub struct ProxyDialer {
     proxy_target: DstAddr,
     auth: Arc<Authentication>,
 }
 
-impl ProxySocks5 {
+impl ProxyDialer {
     pub fn new(proxy_target: DstAddr, auth: Arc<Authentication>) -> Self {
         Self { proxy_target, auth }
     }
 }
 
 #[async_trait]
-impl TryConnect for ProxySocks5 {
+impl TryConnect for ProxyDialer {
     type Output = TcpStream;
     type Error = Error;
     async fn try_connect(&self, dst: DstAddr) -> Result<Self::Output, Self::Error> {

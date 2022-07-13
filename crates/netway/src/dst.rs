@@ -5,6 +5,7 @@ use std::{
 };
 
 use tokio::{io::BufReader, net::TcpStream};
+#[cfg(feature = "tokio-native-tls")]
 use tokio_native_tls::TlsStream;
 
 use crate::error::Error;
@@ -39,6 +40,7 @@ impl ToLocalAddr for BufReader<TcpStream> {
     }
 }
 
+#[cfg(feature = "tokio-native-tls")]
 impl ToLocalAddr for BufReader<TlsStream<TcpStream>> {
     type Error = Error;
     fn to_local_addr(&self) -> Result<DstAddr, Self::Error> {

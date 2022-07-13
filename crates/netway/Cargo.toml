@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 tokio = { version ="1.8", features= ["full"] }
-tokio-native-tls = "0.3"
 async-trait = "0.1"
 thiserror = "1.0"
 pin-project-lite = "0.2"
@@ -15,5 +14,14 @@ bytes = "1.0"
 log = "0.4.14"
 base64 = "0.13"
 
+[dependencies.tokio-native-tls]
+version = "0.3"
+optional = true
+
 [dev-dependencies]
 env_logger = "0.9.0"
+
+[features]
+default = ["tokio-native-tls"]
+tls = ["tokio-native-tls"]
+no-tls = []

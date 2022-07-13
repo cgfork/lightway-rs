@@ -1,9 +1,11 @@
-use anyhow::{anyhow, Ok, Result};
-use netway::{auth::Authentication, Dialer, Protocol};
+use anyhow::{anyhow, Result};
+use netway::auth::Authentication;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize)]
+use crate::rule::{self, rules::Rule, Args, Decision};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProxyMode {
     #[serde(rename = "direct")]
     Direct,
@@ -23,7 +25,7 @@ pub struct Config {
     pub rules: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
     pub loglevel: String,
     pub skip_proxy: Vec<String>,
@@ -61,26 +63,65 @@ impl Default for General {
     }
 }
 
-pub fn parse_proxy(proxy: &str) -> Result<Dialer> {
+impl Config {
+    pub fn parse(&self) -> Result<ParsedConfig> {
+        let mut proxies = HashMap::new();
+        for (k, v) in &self.proxies {
+            proxies.insert(k.clone(), parse_proxy(v)?);
+        }
+
+        let rules = self
+            .rules
+            .iter()
+            .filter_map(|v| match rule::rules::parse(v) {
+                Ok(x) => Some(x),
+                Err(_) => {
+                    log::error!("unknown rule: {}", v);
+                    None
+                }
+            })
+            .collect::<Vec<(Rule, Decision, Option<Args>)>>();
+        Ok(ParsedConfig {
+            general: self.general.clone(),
+            proxies,
+            rules,
+        })
+    }
+}
+
+pub enum Protocol {
+    Socks5,
+    HTTP,
+    #[cfg(feature = "tls")]
+    HTTPs,
+}
+
+pub struct ParsedConfig {
+    pub(crate) general: General,
+    pub(crate) proxies: HashMap<String, (Protocol, String, u16, Authentication)>,
+    pub(crate) rules: Vec<(Rule, Decision, Option<Args>)>,
+}
+
+pub(crate) fn parse_proxy(proxy: &str) -> Result<(Protocol, String, u16, Authentication)> {
     let splits: Vec<&str> = proxy.split(',').into_iter().map(|s| s.trim()).collect();
     if splits.len() == 3 {
-        return Ok(Dialer::new(
+        return Ok((
             parse_protocol(splits[0])?,
             splits[1].to_string(),
             u16::from_str_radix(splits[2], 10)?,
-            Arc::new(Authentication::NoAuth),
+            Authentication::NoAuth,
         ));
     }
 
     if splits.len() == 5 {
-        return Ok(Dialer::new(
+        return Ok((
             parse_protocol(splits[0])?,
             splits[1].to_string(),
             u16::from_str_radix(splits[2], 10)?,
-            Arc::new(Authentication::Password {
+            Authentication::Password {
                 username: splits[3].to_string(),
                 password: splits[4].to_string(),
-            }),
+            },
         ));
     }
 
@@ -91,7 +132,13 @@ fn parse_protocol(s: &str) -> Result<Protocol> {
     if s.eq_ignore_ascii_case("http") {
         Ok(Protocol::HTTP)
     } else if s.eq_ignore_ascii_case("https") {
-        Ok(Protocol::HTTPs)
+        #[cfg(feature = "tls")]
+        {
+            Ok(Protocol::HTTPs)
+        }
+
+        #[cfg(not(feature = "tls"))]
+        Err(anyhow!("https does not support"))
     } else if s.eq_ignore_ascii_case("socks5") {
         Ok(Protocol::Socks5)
     } else {

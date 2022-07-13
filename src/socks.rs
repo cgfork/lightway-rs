@@ -1,144 +1,125 @@
-use std::{io::ErrorKind, sync::Arc};
+use std::{io::ErrorKind, net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
 use netway::{
     auth::Authentication,
     dst::{DstAddr, ToLocalAddr},
     error::Error,
-    Dialer, TryConnect,
+    socks5, tunnel, DefaultDialer, TryConnect,
 };
+
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpListener,
+    task::JoinHandle,
 };
 
-use crate::rule::Policy;
+use crate::{
+    config::{ParsedConfig, Protocol, ProxyMode},
+    rule::{Decision, Dialer, SimplePolicy},
+};
 
-pub struct AlwaysProxy {
-    dialer: Dialer,
-    l: TcpListener,
-    auth: Arc<Authentication>,
-}
-
-impl AlwaysProxy {
-    pub fn new(dialer: Dialer, l: TcpListener, auth: Arc<Authentication>) -> Self {
-        Self { dialer, l, auth }
-    }
-}
-
-impl AlwaysProxy {
-    pub async fn start_accept(&self) -> Result<()> {
-        loop {
-            let (mut stream, socket_addr) = self.l.accept().await?;
-            let auth = self.auth.clone();
-            let dialer = self.dialer.clone();
-            tokio::spawn(async move {
-                proxy_serve(dialer, &mut stream, &auth, DstAddr::Socket(socket_addr)).await
-            });
-        }
-    }
-}
-
-pub struct AlwaysDirect {
-    l: TcpListener,
-    auth: Arc<Authentication>,
-}
-
-impl AlwaysDirect {
-    pub fn new(l: TcpListener, auth: Arc<Authentication>) -> Self {
-        Self { l, auth }
-    }
-}
-
-impl AlwaysDirect {
-    pub async fn start_accept(&self) -> Result<()> {
-        loop {
-            let (mut stream, socket_addr) = self.l.accept().await?;
-            let auth = self.auth.clone();
-            tokio::spawn(async move {
-                proxy_serve(
-                    netway::DirectDialer,
-                    &mut stream,
-                    &auth,
-                    DstAddr::Socket(socket_addr),
-                )
-                .await
-            });
-        }
-    }
-}
-
-pub struct AutoProxy<P> {
-    dialer: Dialer,
-    l: TcpListener,
-    auth: Arc<Authentication>,
-    policy: Arc<P>,
-    default_proxy: bool,
-}
-
-impl<P> AutoProxy<P> {
-    pub fn new(
-        dialer: Dialer,
-        l: TcpListener,
-        auth: Arc<Authentication>,
-        policy: Arc<P>,
-        default_proxy: bool,
-    ) -> Self {
-        Self {
-            dialer,
-            l,
-            auth,
-            policy,
-            default_proxy,
-        }
-    }
-}
-
-impl<P> AutoProxy<P>
-where
-    P: Policy + Send + Sync + 'static,
-{
-    pub async fn start_accept(&self) -> Result<()> {
-        loop {
-            let (mut stream, socket_addr) = self.l.accept().await?;
-            let auth = self.auth.clone();
-            let dialer = self.dialer.clone();
-            let policy = self.policy.clone();
-            let default_proxy = self.default_proxy;
-            tokio::spawn(async move {
-                let dst_addr = DstAddr::Socket(socket_addr);
-                let (decision, _) = policy.enforce(&dst_addr);
-                match decision {
-                    crate::rule::Decision::Direct => {
-                        proxy_serve(
-                            netway::DirectDialer,
-                            &mut stream,
-                            &auth,
-                            DstAddr::Socket(socket_addr),
-                        )
-                        .await
+pub async fn start_proxy(config: ParsedConfig) -> Result<JoinHandle<Result<(), anyhow::Error>>> {
+    let l = TcpListener::bind(&config.general.socks5_listen).await?;
+    match &config.general.proxy {
+        Some(name) => match config.proxies.get(name) {
+            Some((protocol, host, port, auth)) => {
+                let dst_addr = match host.parse() {
+                    Ok(ip) => DstAddr::Socket(SocketAddr::new(ip, *port)),
+                    Err(_) => DstAddr::Domain(host.clone(), *port),
+                };
+                let policy = match config.general.proxy_mode {
+                    ProxyMode::Direct => SimplePolicy::new(Some(Decision::Direct), vec![]),
+                    ProxyMode::Proxy => {
+                        SimplePolicy::new(Some(Decision::Proxy { remote_dns: false }), vec![])
                     }
-                    crate::rule::Decision::Proxy { .. } => {
-                        proxy_serve(dialer, &mut stream, &auth, DstAddr::Socket(socket_addr)).await
-                    }
-                    crate::rule::Decision::Default => {
-                        if default_proxy {
-                            proxy_serve(dialer, &mut stream, &auth, DstAddr::Socket(socket_addr))
+                    ProxyMode::Auto => SimplePolicy::new(None, config.rules),
+                };
+                let auth = Arc::new(auth.clone());
+                let policy = Arc::new(policy);
+                Ok(match protocol {
+                    Protocol::Socks5 => tokio::spawn(async move {
+                        loop {
+                            let (mut stream, socket_addr) = l.accept().await.unwrap();
+                            let dst_addr = dst_addr.clone();
+                            let auth = auth.clone();
+                            let policy = policy.clone();
+                            tokio::spawn(async move {
+                                proxy_serve(
+                                    Dialer::new(
+                                        socks5::ProxyDialer::new(dst_addr, auth),
+                                        policy,
+                                        false,
+                                    ),
+                                    &mut stream,
+                                    &Authentication::NoAuth,
+                                    DstAddr::Socket(socket_addr),
+                                )
                                 .await
-                        } else {
-                            proxy_serve(
-                                netway::DirectDialer,
-                                &mut stream,
-                                &auth,
-                                DstAddr::Socket(socket_addr),
-                            )
-                            .await
+                            });
                         }
-                    }
-                    crate::rule::Decision::Deny => return Err(Error::ProxyDenied),
-                }
-            });
-        }
+                    }),
+                    Protocol::HTTP => tokio::spawn(async move {
+                        loop {
+                            let (mut stream, socket_addr) = l.accept().await.unwrap();
+                            let dst_addr = dst_addr.clone();
+                            let auth = auth.clone();
+                            let policy = policy.clone();
+                            tokio::spawn(async move {
+                                proxy_serve(
+                                    Dialer::new(
+                                        tunnel::ProxyDialer::new(dst_addr, auth),
+                                        policy,
+                                        false,
+                                    ),
+                                    &mut stream,
+                                    &Authentication::NoAuth,
+                                    DstAddr::Socket(socket_addr),
+                                )
+                                .await
+                            });
+                        }
+                    }),
+                    #[cfg(feature = "tls")]
+                    Protocol::HTTPs => tokio::spawn(async move {
+                        loop {
+                            let (mut stream, socket_addr) = l.accept().await.unwrap();
+                            let dst_addr = dst_addr.clone();
+                            let auth = auth.clone();
+                            let policy = policy.clone();
+                            tokio::spawn(async move {
+                                proxy_serve(
+                                    Dialer::new(
+                                        netway::tunnel_tls::ProxyDialer::new(dst_addr, auth),
+                                        policy,
+                                        false,
+                                    ),
+                                    &mut stream,
+                                    &Authentication::NoAuth,
+                                    DstAddr::Socket(socket_addr),
+                                )
+                                .await
+                            });
+                        }
+                    }),
+                })
+            }
+            None => panic!("{} not found", name),
+        },
+        None => Ok(tokio::spawn(async move {
+            loop {
+                let (mut stream, socket_addr) = l.accept().await.unwrap();
+                tokio::spawn(async move {
+                    proxy_serve(
+                        DefaultDialer,
+                        &mut stream,
+                        &Authentication::NoAuth,
+                        DstAddr::Socket(socket_addr),
+                    )
+                    .await
+                });
+            }
+        })),
     }
 }
 
@@ -154,7 +135,7 @@ where
     E: Into<Error>,
     S: AsyncRead + AsyncWrite + Unpin + Send,
 {
-    let proxy = netway::socks5::Proxy::new(dialer);
+    let proxy = netway::socks5::ProxySever::new(dialer);
     match proxy.serve(socket, &auth).await {
         Ok((a_2_b, b_2_a)) => {
             log::info!(
