@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>proxy.lightway</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/$HOME/.cargo/bin/lightway</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>~/</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+	<key>RUST_LOG</key>
+	<string>error</string>
+	<key>PROXY_CONF</key>
+	<string>/Users/$HOME/.proxy.yaml</string>
+    </dict>
+  </dict>
+</plist>
+
+
