@@ -1,0 +1,41 @@
+[package]
+name = "proxy-server"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "lwp"
+path = "src/main.rs"
+
+[dependencies]
+proxy = { path = "../proxy" }
+proxy-io = { path = "../proxy-io" }
+proxy-auth = { path = "../proxy-auth" }
+proxy-rules = { path = "../proxy-rules" }
+proxy-tunnel = { path = "../proxy-tunnel" }
+proxy-socks = { path = "../proxy-socks" }
+
+anyhow.workspace = true
+log.workspace = true
+clap = { workspace = true, default-features = false, features = ["std", "cargo", "env", "derive"] }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true, features = ["net"] }
+tokio-util = { workspace = true, features = ["io"] }
+futures = { workspace = true }
+futures-util = { workspace = true }
+hyper = { workspace = true, features = ["full"] }
+http.workspace = true
+headers.workspace = true
+serde = { workspace = true, features = ["std", "serde_derive", "rc"]}
+
+shellexpand = "2.1"
+etcetera = "0.4"
+toml = "0.5"
+fern = "0.6"
+chrono = "0.4"
+
+[dev-dependencies]
+pretty_env_logger.workspace = true
