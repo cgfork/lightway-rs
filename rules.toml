@@ -1,0 +1,4 @@
+[[rules]]
+rules = [
+  "DOMAIN-SUFFIX,google.com,PROXY,force-remote-dns"
+]

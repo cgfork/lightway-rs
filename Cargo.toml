@@ -1,34 +1,38 @@
-[package]
-name = "lightway"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [workspace]
 members =[
-    "crates/netway",
+    "proxy",
+    "proxy-io",
+    "proxy-auth",
+    "proxy-rules",
+    "proxy-socks",
+    "proxy-tunnel",
+    "proxy-server"
 ]
 
-[dependencies]
-netway = { path = "crates/netway", default-features = false }
-tokio = { version="1.8", features = ["full"] }
+default-members = ["proxy-server"]
+
+[workspace.package]
+authors = ["cgfork <jamesrily686@gmail.com>"]
+edition = "2021"
+homepage = "https://github.com/cgfork/lightway-rs"
+repository = "https://github.com/cgfork/lightway-rs"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "1"
 log = "0.4"
-env_logger = "0.9"
-async-trait = "0.1"
-rust-ini = "0.17"
-regex = "1"
-thiserror = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.8"
-shellexpand = "2.1"
-anyhow = "1.0"
-clap = { version = "~3.1.12", default-features = false, features = ["std", "cargo", "env", "derive"]}
-
-[dependencies.tokio-native-tls]
-version = "0.3"
-optional = true
-
-[features]
-default = []
-tls = ["tokio-native-tls", "netway/tls"]
+pretty_env_logger = "0.4"
+base64 = "0.13"
+tokio = "1.21"
+tokio-stream = "0.1"
+tokio-util = "0.7"
+tokio-native-tls = "0.3"
+clap = "4.0"
+futures = "0.3"
+futures-util = "0.3"
+pin-project-lite = "0.2"
+bytes = "1"
+hyper = "0.14"
+http = "0.2"
+headers = "0.3"
+serde = "1.0"
