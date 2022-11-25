@@ -8,6 +8,7 @@ use anyhow::anyhow;
 use clap::Parser;
 use client::Client;
 use config::{cache_dir, config_dir, Config, ProxyMode};
+use daemonize::Daemonize;
 use hyper::service::{make_service_fn, service_fn};
 use log::{error, info};
 use proxy::Service;
@@ -32,17 +33,22 @@ pub struct App {
     #[arg(long)]
     health: bool,
 
+    /// Executes the program in the background.
+    #[arg(short, long)]
+    daemon: bool,
+
     /// Specifies a file to use for configuration.
     #[arg(short, long)]
     config: Option<PathBuf>,
 
-    /// Specifies a fiel to use for logging.
+    /// Specifies a file to use for logging.
     #[arg(short, long)]
     log: Option<PathBuf>,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+// Unable to use the `tokio::main` to start tokio runtime with async main funciton
+// because of the daemonize will fork the progress.
+fn main() -> anyhow::Result<()> {
     let version = env!("VERSION_AND_GIT_HASH");
     let app = App::parse();
     let logfile = app.log.unwrap_or_else(|| {
@@ -67,13 +73,32 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let rules: Rules = user_rules()?.try_into()?;
+
+    // Executes the program in the background
+    if app.daemon {
+        let pidfile = cache_dir().join("lightway.pid");
+        let stdout = std::fs::File::create(cache_dir().join("stdout")).unwrap();
+        let stderr = std::fs::File::create(cache_dir().join("stderr")).unwrap();
+        match Daemonize::new()
+            .pid_file(&pidfile)
+            .chown_pid_file(true)
+            .stdout(stdout)
+            .stderr(stderr)
+            .privileged_action(|| "Executed before drop priviledges")
+            .start()
+        {
+            Ok(_) => println!("Success, daemonized"),
+            Err(e) => eprintln!("Error, {}", e),
+        }
+    }
+
     setup_logging(logfile.clone(), app.verbose)?;
     let config = toml::from_slice::<Config>(
         &std::fs::read(&configfile)
             .map_err(|e| anyhow!("{} does not exist, {}", configfile.display(), e))?,
     )?;
 
-    let rules: Rules = user_rules()?.try_into()?;
     let mut client = Client::empty();
     let connect = match &config.proxy_mode {
         ProxyMode::Direct => ProxyConnect::<_, _, Rules>::new(TokioConnect::new(), client),
@@ -101,58 +126,72 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let socks_listener = TcpListener::bind(&config.socks5_listen).await?;
-    let socks_server = proxy_socks::server::Server::<Authentication, _>::new(connect.clone());
-    let socks_join = tokio::spawn(async move {
-        loop {
-            match socks_listener.accept().await {
-                Ok((stream, addr)) => {
-                    let mut server = socks_server.clone();
-                    tokio::spawn(async move {
-                        match server.call(stream).await {
-                            Ok(()) => {
-                                info!("completed socks proxy({})", &addr);
-                            }
-                            Err(e) => {
-                                error!("an error occurs during socks proxy({}), {}", &addr, e);
-                            }
+    // Must create the Tokio runtime after daemonizing it. The Tokio runtime can't survive a fork.
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            info!("listen socks on {}", &config.socks5_listen);
+            let socks_listener = TcpListener::bind(&config.socks5_listen).await?;
+            let socks_server =
+                proxy_socks::server::Server::<Authentication, _>::new(connect.clone());
+            let socks_join = tokio::spawn(async move {
+                loop {
+                    match socks_listener.accept().await {
+                        Ok((stream, addr)) => {
+                            let mut server = socks_server.clone();
+                            tokio::spawn(async move {
+                                match server.call(stream).await {
+                                    Ok(()) => {
+                                        info!("completed socks proxy({})", &addr);
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "an error occurs during socks proxy({}), {}",
+                                            &addr, e
+                                        );
+                                    }
+                                }
+                            });
                         }
-                    });
+                        Err(e) => {
+                            error!("unable to accept socks5, {}", e);
+                            break;
+                        }
+                    }
                 }
+            });
+
+            info!("listen http on {}", &config.http_listen);
+            let http_server = proxy_tunnel::Server::<Authentication, _>::new(connect.clone());
+            let server = hyper::Server::bind(&config.http_listen.parse()?)
+                .http1_preserve_header_case(true)
+                .http1_title_case_headers(true)
+                .serve(make_service_fn(move |_| {
+                    let server = http_server.clone();
+                    async move {
+                        Ok::<_, Infallible>(service_fn(move |req| {
+                            let mut server = server.clone();
+                            async move { server.call(req).await }
+                        }))
+                    }
+                }));
+
+            let http_join = tokio::spawn(async move {
+                if let Err(e) = server.await {
+                    error!("unable to serve http, {}", &e);
+                }
+            });
+
+            match tokio::try_join!(socks_join, http_join) {
+                Ok(_) => Ok(()),
                 Err(e) => {
-                    error!("unable to accept socks5, {}", e);
-                    break;
+                    log::error!("exit error: {}", e);
+                    std::process::abort()
                 }
             }
-        }
-    });
-    let http_server = proxy_tunnel::Server::<Authentication, _>::new(connect.clone());
-    let server = hyper::Server::bind(&config.http_listen.parse()?)
-        .http1_preserve_header_case(true)
-        .http1_title_case_headers(true)
-        .serve(make_service_fn(move |_| {
-            let server = http_server.clone();
-            async move {
-                Ok::<_, Infallible>(service_fn(move |req| {
-                    let mut server = server.clone();
-                    async move { server.call(req).await }
-                }))
-            }
-        }));
-
-    let http_join = tokio::spawn(async move {
-        if let Err(e) = server.await {
-            error!("unable to serve http, {}", &e);
-        }
-    });
-
-    match tokio::try_join!(socks_join, http_join) {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            log::error!("exit error: {}", e);
-            std::process::abort()
-        }
-    }
+        })
 }
 
 fn setup_logging(logpath: PathBuf, verbosity: u8) -> anyhow::Result<()> {

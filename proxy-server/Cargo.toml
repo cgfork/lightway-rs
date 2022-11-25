@@ -36,6 +36,7 @@ etcetera = "0.4"
 toml = "0.5"
 fern = "0.6"
 chrono = "0.4"
+daemonize = "0.4"
 
 [dev-dependencies]
 pretty_env_logger.workspace = true
