@@ -2,7 +2,7 @@
 mod client;
 mod config;
 
-use std::{convert::Infallible, path::PathBuf};
+use std::{convert::Infallible, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use clap::Parser;
@@ -37,6 +37,10 @@ pub struct App {
     #[arg(short, long)]
     daemon: bool,
 
+    /// Shutdowns the daemonized progress.
+    #[arg(long)]
+    shutdown: bool,
+
     /// Specifies a file to use for configuration.
     #[arg(short, long)]
     config: Option<PathBuf>,
@@ -70,6 +74,17 @@ fn main() -> anyhow::Result<()> {
         println!("Version: {}", &version);
         println!("Config file: {}", configfile.display());
         println!("Log file: {}", logfile.display());
+        return Ok(());
+    } else if app.shutdown {
+        let pidfile = cache_dir().join("lightway.pid");
+        let data = std::fs::read_to_string(&pidfile).unwrap();
+        let status = std::process::Command::new("kill")
+            .arg(&data)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .status()
+            .unwrap();
+        println!("kill {}, exit status({})", data, status);
         return Ok(());
     }
 
