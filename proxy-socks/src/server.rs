@@ -104,7 +104,10 @@ where
                             };
                             if let Err(e) = Reply::new(rep).write(&mut socket).await {
                                 error!("unable to write reply to socket, {}", e);
-                            } else if let Err(e) = socket.shutdown().await {
+                            }
+
+                            // Don't forget to shutdown the origin socket.
+                            if let Err(e) = socket.shutdown().await {
                                 error!("unable to shutdown the socket, {}", e);
                             }
                             Err(ioe)

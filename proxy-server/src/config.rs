@@ -180,7 +180,6 @@ mod tests {
     #[test]
     fn test_config() {
         let config = Config {
-            log_level: "debug".to_string(),
             http_listen: "127.0.0.1:1235".to_string(),
             socks5_listen: "127.0.0.1:1080".to_string(),
             proxy_mode: ProxyMode::Proxy,
