@@ -7,7 +7,7 @@ use std::{
 use log::{debug, error, warn};
 use proxy::Service;
 use proxy_auth::Authenticator;
-use proxy_io::{Duplex, TargetAddr};
+use proxy_io::TargetAddr;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::{
@@ -79,16 +79,33 @@ where
                         Ok(mut conn) => match Reply::new(Rep::Succeeded).write(&mut socket).await {
                             Ok(()) => {
                                 debug!("bidirectional copy for {}", &target);
-                                // let (a, b) =
-                                //     tokio::io::copy_bidirectional(&mut socket, &mut conn).await?;
-                                // debug!("{} <> {}", a, b);
-                                // Ok(())
-                                Duplex::new(socket, conn).await
+                                let ret = if let Err(e) =
+                                    tokio::io::copy_bidirectional(&mut socket, &mut conn).await
+                                {
+                                    error!("bidirectional copy for {}, {}", &target, &e);
+                                    Err(e)
+                                } else {
+                                    Ok(())
+                                };
+
+                                if let Err(ioe) = conn.shutdown().await {
+                                    error!("unable to shutdown the proxy socket, {}", ioe);
+                                }
+
+                                if let Err(ioe) = socket.shutdown().await {
+                                    error!("unable to shutdown the origin socket, {}", ioe);
+                                }
+
+                                ret
                             }
                             Err(e) => {
                                 error!("unable write succeeded reply to socket, {}", &e);
                                 if let Err(ioe) = conn.shutdown().await {
                                     error!("unable to shutdown the proxy socket, {}", ioe);
+                                }
+
+                                if let Err(ioe) = socket.shutdown().await {
+                                    error!("unable to shutdown the origin socket, {}", ioe);
                                 }
                                 Err(e)
                             }

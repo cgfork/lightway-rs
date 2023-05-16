@@ -13,7 +13,7 @@ use hyper::{client::HttpConnector, Body, Method, Request, Response};
 use log::{debug, error};
 use proxy::Service;
 use proxy_auth::Authenticator;
-use proxy_io::{Duplex, TargetAddr};
+use proxy_io::TargetAddr;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug, Clone)]
@@ -122,9 +122,29 @@ where
                                 Ok(mut upgraded) => {
                                     match connect.call(TargetAddr::Domain(host.clone(), port)).await
                                     {
-                                        Ok(stream) => {
-                                            if let Err(e) = Duplex::new(upgraded, stream).await {
-                                                error!("copy bidirectional failed, error:{}", e)
+                                        Ok(mut stream) => {
+                                            debug!("bidirectional copy for {}", &host);
+                                            if let Err(e) = tokio::io::copy_bidirectional(
+                                                &mut upgraded,
+                                                &mut stream,
+                                            )
+                                            .await
+                                            {
+                                                error!("bidirectional copy for {}, {}", &host, &e);
+                                            };
+
+                                            if let Err(ioe) = stream.shutdown().await {
+                                                error!(
+                                                    "unable to shutdown the proxy socket, {}",
+                                                    ioe
+                                                );
+                                            }
+
+                                            if let Err(ioe) = upgraded.shutdown().await {
+                                                error!(
+                                                    "unable to shutdown the origin socket, {}",
+                                                    ioe
+                                                );
                                             }
                                         }
                                         Err(e) => {
