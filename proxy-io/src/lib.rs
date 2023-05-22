@@ -1,5 +1,6 @@
 #![feature(io_error_more)]
 #![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 mod addr;
 mod either;
 mod fixed_read;
